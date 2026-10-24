@@ -74,3 +74,9 @@ The app was previously called Smart Home Bridge. Its internal bundle identifier 
 ## Connection recovery
 
 If lights stop responding, open **HomeKit setup → Connection & Test → Recover Connection**. Your Apple Home pairing stays intact. Use **All On** and **All Off** to check command delivery; the result reports confirmed and unavailable lights.
+
+### Permissions and connectivity
+
+Permissions & Connection separates bulb connectivity, firewall rules, HomeKit reachability, saved pairing, and login items. An absent firewall rule is unknown, even when macOS reports a permitted default. The engine checks its HAP endpoint on loopback and active LAN IPv4 addresses every 30 seconds; a successful local test does not establish iPhone or Home hub access. Authenticated controller connections and command outcomes are recorded privately in `homekit-health.json` in Application Support.
+
+If loopback works but LAN access fails, check Firewall Options and installed network filters. Managed controls may require the Mac administrator to permit the installed bridge helper and incoming HomeKit TCP port 51847. Re-pairing is not a remedy for network blocking. Keep the installation path stable when updating, and preserve Application Support to retain the HomeKit identity.

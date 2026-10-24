@@ -49,6 +49,9 @@ enum BridgeFailure: LocalizedError {
     var message = "Starting the local bridge…"
     var error: String?
     var showAccount = false
+    var showPermissions = false
+    var incomingReachable:Bool?
+    var lastHomeConnection = ""
     var showManual = false
     var selectedDeviceID = ""
     var advancedDeviceID:String?
@@ -131,7 +134,7 @@ enum BridgeFailure: LocalizedError {
         catch { self.error = "Could not start the bridge: \(error.localizedDescription)" }
     }
     private func engineStopped() {
-        engineReady=false; status.running=false; updatePowerAssertion()
+        engineReady=false; incomingReachable=nil; status.running=false; updatePowerAssertion()
         for (_,t) in timeouts { t.cancel() }; timeouts.removeAll()
         let waiting=pending; pending.removeAll()
         for (_,continuation) in waiting { continuation.resume(throwing:BridgeFailure.message("The bridge engine stopped.")) }
@@ -181,6 +184,9 @@ enum BridgeFailure: LocalizedError {
             let light=LightState(id:id,name:d["name"] as? String ?? "Light",ip:d["ip"] as? String ?? "",online:d["online"] as? Bool ?? false,on:d["on"] as? Bool,brightness:d["brightness"] as? Double,hue:d["hue"] as? Double,saturation:d["saturation"] as? Double,error:d["error"] as? String ?? "")
             if let index=lights.firstIndex(where:{$0.id==id}) { lights[index]=light } else { lights.append(light) }
         case "bridge": if let _=event["running"] { updateStatus(event) }
+        case "connectivity":
+            incomingReachable=event["lan"] as? Bool
+            lastHomeConnection=event["lastAuthenticated"] as? String ?? ""
         case "notice": message=event["message"] as? String ?? ""
         case "fatal": error=event["message"] as? String
         default: break
@@ -232,6 +238,7 @@ enum BridgeFailure: LocalizedError {
         }
         do { try persist() } catch { self.error=error.localizedDescription }
     }
+    func checkIncomingConnection() async { _ = try? await request("checkConnectivity") }
     func recoverConnection() async {
         guard !busy else { return }
         busy=true;recovering=true;error=nil;testResult="Reconnecting…"
@@ -241,10 +248,10 @@ enum BridgeFailure: LocalizedError {
         for _ in 0..<30 { if previous?.isRunning != true { break };try? await Task.sleep(for:.milliseconds(100)) }
         if let previous,previous.isRunning { Darwin.kill(previous.processIdentifier,SIGKILL) }
         for _ in 0..<20 { if previous?.isRunning != true { break };try? await Task.sleep(for:.milliseconds(100)) }
-        engine=nil;engineReady=false;status.running=false;connecting.removeAll();found.removeAll();lights.removeAll()
+        engine=nil;engineReady=false;incomingReachable=nil;status.running=false;connecting.removeAll();found.removeAll();lights.removeAll()
         startEngine()
         for _ in 0..<100 { if connected { break };try? await Task.sleep(for:.milliseconds(200)) }
-        testResult=connected ? "Connection restored. Your Apple Home pairing is unchanged.":"Still reconnecting. Check that your lights are powered on and on the same Wi-Fi."
+        testResult=connected ? "Lights reconnected. Checking Apple Home connectivity… Your pairing is unchanged.":"Still reconnecting. Check that your lights are powered on and on the same Wi-Fi."
     }
     func testAllLights(on:Bool) async {
         guard !busy else { return };busy=true;defer{busy=false}

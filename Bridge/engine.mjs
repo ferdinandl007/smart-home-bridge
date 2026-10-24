@@ -10,6 +10,7 @@ import {profileFor,readValue,writeValues} from './light.mjs';
 import {featuresFor,validateFeature,sceneValues} from './features.mjs';
 import {createAccountSession} from './cloud.mjs';
 import {deadline,acquireEngineLock,setAll} from './reliability.mjs';
+import {probeHomeKit} from './connectivity.mjs';
 
 process.umask(0o077);
 const root=process.env.SHB_DATA_DIR || path.join(os.homedir(),'Library/Application Support/Smart Home Bridge');
@@ -36,6 +37,11 @@ async function refreshAccount() {
  finally {refreshingAccount=false;}
 }
 
+const health={started:new Date().toISOString(),lastEvent:'starting',connections:0,authenticated:0,writes:0};
+function recordHome(event,detail={}){
+ Object.assign(health,{lastEvent:event,at:new Date().toISOString(),...detail});
+ try{fs.writeFileSync(path.join(root,'homekit-health.json'),JSON.stringify(health),{mode:0o600});}catch{}
+}
 const lights=new Map();
 const discovery=new Discovery(device=>{
   const light=lights.get(device.id);
@@ -130,7 +136,7 @@ class Light {
     this.service=service;this.accessory=accessory;
     const bind=(characteristic,property)=>service.getCharacteristic(characteristic)
       .onGet(async()=>{try{return await this.read(property);}catch{throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);}})
-      .onSet(async(value)=>{try{await this.write(property,value);}catch{throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);}});
+      .onSet(async(value)=>{health.writes++;recordHome('command-received',{accessory:this.config.name,property});try{await this.write(property,value);recordHome('command-confirmed');}catch(error){recordHome('command-failed',{error:error.message});throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);}});
     bind(Characteristic.On,'on');
     if(this.profile.brightness)bind(Characteristic.Brightness,'brightness');
     if(this.profile.temperature){service.getCharacteristic(Characteristic.ColorTemperature).setProps({minValue:154,maxValue:370});bind(Characteristic.ColorTemperature,'temperature');}
@@ -177,21 +183,47 @@ function validateConfig(config){
   if(!['3.1','3.2','3.3','3.4','3.5'].includes(String(config.version)))throw new Error('Unsupported Tuya protocol version.');
   if(!config.name?.trim())throw new Error('Give the light a name.');
 }
+let checkingConnection=false;
+async function checkConnection(){
+  if(!published || checkingConnection || stopping)return;
+  checkingConnection=true;
+  try {
+    const addresses=Object.entries(os.networkInterfaces()).filter(([name])=>!/^(lo|utun|awdl|llw)/.test(name)).flatMap(([,addresses])=>addresses.filter(a=>!a.internal && a.family==='IPv4').map(a=>a.address));
+    const local=await probeHomeKit('127.0.0.1');
+    const results=await Promise.all(addresses.map(address=>probeHomeKit(address)));
+    const lan=results.length ? results.some(Boolean):null;
+    recordHome('connection-check',{local,lan});
+    emit('connectivity',{local,lan,lastAuthenticated:health.lastAuthenticated ?? ''});
+  } finally {checkingConnection=false;}
+}
 function bridgeState(){return {running:published,paired:bridge?._accessoryInfo?.paired() || false,pincode:identity.pincode,uri:published?bridge.setupURI():'',count:[...lights.values()].filter(x=>x.accessory).length};}
 async function startBridge(){
   if(published)return bridgeState();
-  bridge ||= new Bridge('SMART+ HomeKit Bridge',uuid.generate(identity.username));
+  bridge ||= new Bridge('Smart Home Bridge',uuid.generate(identity.username));
   bridge.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Manufacturer,'SMART+ HomeKit Bridge').setCharacteristic(Characteristic.Model,'SMART+ HomeKit Bridge').setCharacteristic(Characteristic.SerialNumber,identity.username);
   for(const light of lights.values())light.attach();
   bridge.on('paired',()=>emit('bridge',bridgeState()));
   bridge.on('unpaired',()=>emit('bridge',bridgeState()));
-  await bridge.publish({...identity,port:51847,category:Categories.BRIDGE,advertiser:hap.MDNSAdvertiser.CIAO});
-  published=true;emit('bridge',bridgeState());return bridgeState();
+  const interfaces=Object.entries(os.networkInterfaces()).filter(([name,addresses])=>!/^(lo|utun|awdl|llw)/.test(name) && addresses.some(a=>!a.internal && a.family==='IPv4')).map(([name])=>name);
+  await bridge.publish({...identity,bind:interfaces.length?interfaces:undefined,port:51847,category:Categories.BRIDGE,advertiser:hap.MDNSAdvertiser.CIAO});
+  published=true;
+  if(!bridge._healthAttached){
+    bridge._healthAttached=true;
+    bridge._server?.httpServer?.on('connection-opened',connection=>{
+      health.connections++;recordHome('connection-opened');
+      connection.on('authenticated',()=>{health.authenticated++;recordHome('authenticated',{lastAuthenticated:new Date().toISOString()});void checkConnection();});
+    });
+    bridge._server?.on('set-characteristics',()=>recordHome('homekit-write-request'));
+  }
+  recordHome('advertising');
+  setTimeout(()=>void checkConnection(),2000).unref();
+  emit('bridge',bridgeState());return bridgeState();
 }
 async function stopBridge(){if(published)await bridge.unpublish();published=false;emit('bridge',bridgeState());return bridgeState();}
 const dispatch=async(method,params={})=>{
   switch(method){
     case 'scan':discovery.probe();await new Promise(r=>setTimeout(r,12000));return [...discovery.devices.values()];
+    case 'checkConnectivity':await checkConnection();return health;
     case 'status':return {bridge:bridgeState(),devices:[...discovery.devices.values()],lights:[...lights.values()].map(x=>x.snapshot())};
     case 'account': {
       accountSession=createAccountSession(params);
@@ -232,9 +264,10 @@ const dispatch=async(method,params={})=>{
     default:throw new Error('Unknown bridge operation.');
   }
 };
-async function shutdown(){if(stopping)return;stopping=true;setTimeout(()=>process.exit(0),3000).unref();clearInterval(parentWatch);clearInterval(accountTimer);clearInterval(poll);discovery.stop();for(const light of lights.values())light.resetConnection();await stopBridge();setTimeout(()=>process.exit(0),50);}
+async function shutdown(){if(stopping)return;stopping=true;setTimeout(()=>process.exit(0),3000).unref();clearInterval(connectionWatch);clearInterval(parentWatch);clearInterval(accountTimer);clearInterval(poll);discovery.stop();for(const light of lights.values())light.resetConnection();await stopBridge();setTimeout(()=>process.exit(0),50);}
 const parentPID=Number(process.env.SHB_PARENT_PID || 0);
 const parentWatch=setInterval(()=>{if(parentPID && process.ppid!==parentPID)void shutdown();},1000);
+const connectionWatch=setInterval(()=>void checkConnection(),30000);
 const poll=setInterval(()=>{for(const light of lights.values())light.serial(()=>light.refresh(true)).catch(()=>{});},15000);
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>void shutdown());
 const input=readline.createInterface({input:process.stdin});
@@ -244,6 +277,6 @@ input.on('line',async line=>{
   catch(error){emit('reply',{requestID:request?.requestID,error:error.message || 'Bridge operation failed.'});}
 });
 input.on('close',()=>void shutdown());
-process.on('uncaughtException',()=>{emit('fatal',{message:'The bridge engine stopped unexpectedly. Restart it from the app.'});void shutdown();});
+process.on('uncaughtException',error=>{recordHome('fatal',{error:error.message,stack:error.stack});emit('fatal',{message:'The bridge engine stopped unexpectedly. Restart it from the app.'});void shutdown();});
 await discovery.start().catch(()=>emit('notice',{message:'Discovery is unavailable. Allow Local Network access in System Settings, then restart the app.'}));
 emit('ready');

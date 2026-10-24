@@ -27,11 +27,12 @@ struct BridgeMenu:View {
     @Bindable var model:BridgeModel
     @Environment(\.openWindow) private var openWindow
     var body:some View {
-        Text(model.status.running ? (model.connected ? "Bridge online":"Bridge online · lights unavailable"):"Bridge offline")
+        Text(model.incomingReachable == false ? "HomeKit connection needs attention":model.status.running ? "Bridge running":"Bridge offline")
         Text("\(model.lights.filter(\.online).count) connected · \(model.savedNames.count) lights detected")
         Divider()
         Button("HomeKit setup…") { NSApp.activate();openWindow(id:"main") }
         Button(model.accountEmail.isEmpty ? "Log in to SMART+…":"Account login…") { NSApp.activate();openWindow(id:"main");model.showAccount=true }
+        Button("Permissions & Connection…") { NSApp.activate();openWindow(id:"main");model.showPermissions=true }
         SettingsLink { Text("Settings…") }
         Divider()
         Button("Quit SMART+ HomeKit Bridge") { NSApp.terminate(nil) }.keyboardShortcut("q")
@@ -44,13 +45,13 @@ struct SetupView:View {
     private var online:Int { model.lights.filter(\.online).count }
     var body:some View {
         VStack(spacing:20) {
-            Image(systemName:model.connected ? "checkmark.circle.fill":"wifi.exclamationmark")
-                .font(.system(size:40,weight:.regular)).foregroundStyle(model.connected ? Color.green:Color.secondary)
+            Image(systemName:model.incomingReachable == false ? "exclamationmark.triangle.fill":model.connected ? "checkmark.circle.fill":"wifi.exclamationmark")
+                .font(.system(size:40,weight:.regular)).foregroundStyle(model.incomingReachable == false ? Color.orange:model.connected ? Color.green:Color.secondary)
                 .accessibilityHidden(true)
             VStack(spacing:8) {
-                Text(!model.status.running && !model.accountEmail.isEmpty ? "Bridge Needs Attention":model.status.paired && model.connected ? "Your Lights Are Connected":"Your Lights, in Apple Home")
+                Text(model.incomingReachable == false ? "Apple Home Can’t Reach the Bridge":!model.status.running && !model.accountEmail.isEmpty ? "Bridge Needs Attention":model.status.paired && model.connected ? "Bridge Is Running":"Your Lights, in Apple Home")
                     .font(.title2.weight(.semibold))
-                Text(model.accountEmail.isEmpty ? "Connect your SMART+ account to get started.":model.status.paired ? "Control them in Apple Home. We’ll take care of the connection.":"Open Home on your iPhone, tap +, then Add Accessory and scan the code.")
+                Text(model.incomingReachable == false ? "The incoming connection test failed. Check Permissions & Connection to restore access.":model.accountEmail.isEmpty ? "Connect your SMART+ account to get started.":model.status.paired ? "Your pairing is saved. Control your lights in Apple Home.":"Open Home on your iPhone, tap +, then Add Accessory and scan the code.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal:false,vertical:true)
             }
             if model.accountEmail.isEmpty {
@@ -87,6 +88,7 @@ struct SetupView:View {
                     }.padding(.top,10)
                 }
             }
+            Button("Permissions & Connection…") { model.showPermissions=true }.buttonStyle(.link)
             if let error=model.error {
                 Text(error).font(.callout).foregroundStyle(.red).multilineTextAlignment(.center).textSelection(.enabled)
                 Button("Update Account Login") { model.showAccount=true }
@@ -94,6 +96,7 @@ struct SetupView:View {
             if !model.engineReady { ProgressView("Starting bridge…").controlSize(.small) }
         }
         .padding(32).frame(width:400).fixedSize(horizontal:false,vertical:true)
+        .sheet(isPresented:$model.showPermissions) { PermissionsView(model:model) }
         .sheet(isPresented:$model.showAccount) { AccountView(model:model) }
     }
 }
@@ -106,13 +109,17 @@ struct BridgeSettings:View {
                 Button("Update Account Login…") { model.showAccount=true }
                 Text("Login and device keys are saved in private local files on this Mac. Keychain is not used.").font(.caption).foregroundStyle(.secondary)
             }
+            Section("Permissions") {
+                Button("Permissions & Connection…") { model.showPermissions=true }
+            }
             Section("Availability") {
                 Toggle("Launch at login",isOn:Binding(get:{model.loginEnabled},set:{model.setLogin($0)}))
                 Toggle("Keep Mac awake while bridging",isOn:Binding(get:{model.keepAwake},set:{model.setKeepAwake($0)}))
                 Text("Starts after you log in. The display can sleep; manual sleep or shutdown disconnects the bridge.").font(.caption).foregroundStyle(.secondary)
             }
-        }.formStyle(.grouped).frame(width:460,height:300)
-            .sheet(isPresented:$model.showAccount) { AccountView(model:model) }
+        }.formStyle(.grouped).frame(width:460,height:370)
+            .sheet(isPresented:$model.showPermissions) { PermissionsView(model:model) }
+        .sheet(isPresented:$model.showAccount) { AccountView(model:model) }
     }
 }
 struct AccountView:View {
