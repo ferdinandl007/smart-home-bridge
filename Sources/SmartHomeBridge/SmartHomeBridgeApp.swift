@@ -5,7 +5,7 @@ import AppKit
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @State private var model=BridgeModel.shared
     var body:some Scene {
-        Window("Smart Home Bridge",id:"main") {
+        Window("SMART+ HomeKit Bridge",id:"main") {
             SetupView(model:model).onAppear { delegate.model=model;model.start() }
         }
         .defaultSize(width:440,height:440)
@@ -14,7 +14,7 @@ import AppKit
         Settings { BridgeSettings(model:model) }
         MenuBarExtra {
             BridgeMenu(model:model).onAppear { delegate.model=model;model.start() }
-        } label: { Image(systemName:model.status.running ? "house.fill":"house").accessibilityLabel("Smart Home Bridge") }
+        } label: { Image(systemName:model.status.running ? "house.fill":"house").accessibilityLabel("SMART+ HomeKit Bridge") }
     }
 }
 final class AppDelegate:NSObject,NSApplicationDelegate {
@@ -34,7 +34,7 @@ struct BridgeMenu:View {
         Button(model.accountEmail.isEmpty ? "Log in to SMART+…":"Account login…") { NSApp.activate();openWindow(id:"main");model.showAccount=true }
         SettingsLink { Text("Settings…") }
         Divider()
-        Button("Quit Smart Home Bridge") { NSApp.terminate(nil) }.keyboardShortcut("q")
+        Button("Quit SMART+ HomeKit Bridge") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }
 struct SetupView:View {

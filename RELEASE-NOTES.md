@@ -1,18 +1,7 @@
-Smart Home Bridge 1.0.2 adds LEDVANCE / OSRAM SMART+ Wi-Fi lights to Apple Home from a native macOS menu bar app.
+SMART+ HomeKit Bridge 1.0.3 renames the app and repository to SMART+ HomeKit Bridge and sets the HomeKit bridge manufacturer and model to SMART+ HomeKit Bridge.
 
-- One-time SMART+ email/password login and automatic inventory refresh every two minutes.
-- Local encrypted light control, automatic reconnects, and automatic addition of newly discovered supported account lights.
-- HomeKit power, brightness, supported RGB and color temperature, additional boolean feature switches, and device scene mode.
-- Minimal menu with bridge connectivity, light count, account login, and HomeKit setup. Light controls stay in Apple Home.
-- RGBW white-channel mapping and an explicit White mode switch in HomeKit.
-- Real HomeKit QR code, generated from the bridge identity and decoder-tested with Vision.
-- Launch at login and optional prevention of idle sleep.
-- No Keychain prompts. Private, unencrypted local credential files restricted to the signed-in macOS user.
+Existing account settings, device identities, and Apple Home pairing are preserved. The internal storage directory and bundle identifier remain unchanged for compatibility.
 
-Requires macOS 15 or newer. The arm64 download is for Apple silicon Macs. The runtime is included; no Homebridge or Node installation is required. The ZIP contains no personal credentials or device configuration.
+This is the Apple silicon build for macOS 15+. It is ad-hoc signed, not notarized. Automatic launch occurs after user login. Supported hardware remains LEDVANCE / OSRAM SMART+ Tuya Wi-Fi lights; the rename does not imply support for additional device protocols.
 
-This release is ad-hoc signed and not notarized. macOS may require approval through Privacy & Security. Startup occurs after user login. Each Mac creates a separate HomeKit bridge: for permanent use, quit the temporary bridge, sign in on the Mac mini, and pair that Mac's QR code.
-
-Limitations: Tuya-protocol Wi-Fi lights only; no Zigbee, Bluetooth-only, Matter commissioning, cameras, plugs, or sensors. Vendor-specific schedules, countdown configuration, and effect editors remain in SMART+. Audio-reactive streaming is not implemented. White temperature assumes 2700–6500 K. Apple Home cannot display every vendor setting. Apple Home pairing and basic controls were confirmed on the development Mac. Mac mini operation must be verified on the destination installation.
-
-Validation: 17 bridge tests, two native QR tests, real-account import, five actual lights read over LAN (protocols 3.3 and 3.5), and local HomeKit Bonjour advertisement. These checks do not replace final Apple Home acceptance.
+The README is now a short product introduction, with download and release badges, automatic-setup benefits, and three setup steps. Technical details moved to docs/DEVELOPMENT.md.

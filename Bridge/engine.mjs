@@ -175,7 +175,8 @@ function validateConfig(config){
 function bridgeState(){return {running:published,paired:bridge?._accessoryInfo?.paired() || false,pincode:identity.pincode,uri:published?bridge.setupURI():'',count:[...lights.values()].filter(x=>x.accessory).length};}
 async function startBridge(){
   if(published)return bridgeState();
-  bridge ||= new Bridge('Smart Home Bridge',uuid.generate(identity.username));
+  bridge ||= new Bridge('SMART+ HomeKit Bridge',uuid.generate(identity.username));
+  bridge.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Manufacturer,'SMART+ HomeKit Bridge').setCharacteristic(Characteristic.Model,'SMART+ HomeKit Bridge').setCharacteristic(Characteristic.SerialNumber,identity.username);
   for(const light of lights.values())light.attach();
   bridge.on('paired',()=>emit('bridge',bridgeState()));
   bridge.on('unpaired',()=>emit('bridge',bridgeState()));

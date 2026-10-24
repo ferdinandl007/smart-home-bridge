@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 cd "${0:A:h:h}"
-app="${PWD}/dist/Smart Home Bridge.app"
+app="${PWD}/dist/SMART+ HomeKit Bridge.app"
 runtime_version="24.22.1"
 case "$(uname -m)" in
   arm64) runtime_arch="arm64" ;;
@@ -31,13 +31,13 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>Smart Home Bridge</string>
-<key>CFBundleDisplayName</key><string>Smart Home Bridge</string>
+<key>CFBundleName</key><string>SMART+ HomeKit Bridge</string>
+<key>CFBundleDisplayName</key><string>SMART+ HomeKit Bridge</string>
 <key>CFBundleIdentifier</key><string>com.local.SmartHomeBridge</string>
 <key>CFBundleExecutable</key><string>SmartHomeBridge</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0.2</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>1.0.3</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
@@ -47,6 +47,6 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 PLIST
 codesign --force --sign - "$app/Contents/Resources/Runtime/node"
 codesign --force --deep --sign - "$app"
-ditto -c -k --sequesterRsrc --keepParent "$app" "${PWD}/dist/Smart-Home-Bridge-macOS-$(uname -m).zip"
-(cd dist; shasum -a 256 "Smart-Home-Bridge-macOS-$(uname -m).zip" > "SHA256SUMS-$(uname -m).txt")
+ditto -c -k --sequesterRsrc --keepParent "$app" "${PWD}/dist/SMART-Plus-HomeKit-Bridge-macOS-$(uname -m).zip"
+(cd dist; shasum -a 256 "SMART-Plus-HomeKit-Bridge-macOS-$(uname -m).zip" > "SHA256SUMS-$(uname -m).txt")
 print "Built: $app"
