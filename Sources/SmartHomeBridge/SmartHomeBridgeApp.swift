@@ -9,7 +9,7 @@ import AppKit
             SetupView(model:model).onAppear { delegate.model=model;model.start() }
         }
         .defaultSize(width:440,height:440)
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
         .defaultLaunchBehavior(CommandLine.arguments.contains("--show-window") ? .presented:.suppressed)
         Settings { BridgeSettings(model:model) }
         MenuBarExtra {
@@ -43,7 +43,7 @@ struct SetupView:View {
     private var online:Int { model.lights.filter(\.online).count }
     var body:some View {
         VStack(spacing:20) {
-            Image(systemName:model.status.paired ? "house.badge.checkmark.fill":"house.fill")
+            Image(systemName:model.status.paired ? "checkmark.circle.fill":"house.fill")
                 .font(.system(size:40,weight:.regular)).foregroundStyle(model.status.paired ? Color.green:Color.accentColor)
                 .accessibilityHidden(true)
             VStack(spacing:8) {
