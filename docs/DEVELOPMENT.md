@@ -70,3 +70,7 @@ The Swift tests use Vision to decode the actual Core Image QR output and verify 
 MIT licensed. See [third-party notices](../THIRD-PARTY-NOTICES.md). Not affiliated with Apple, LEDVANCE, OSRAM, or Tuya.
 
 The app was previously called Smart Home Bridge. Its internal bundle identifier and private storage location are preserved so existing logins and HomeKit pairings survive the rename. The HomeKit bridge manufacturer is HomeKit Bridge; physical lights retain their actual manufacturer.
+
+## Connection recovery
+
+If lights stop responding, open **HomeKit setup → Connection & Test → Recover Connection**. Your Apple Home pairing stays intact. Use **All On** and **All Off** to check command delivery; the result reports confirmed and unavailable lights.

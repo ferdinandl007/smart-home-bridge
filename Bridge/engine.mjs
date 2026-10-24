@@ -9,10 +9,13 @@ import {Discovery} from './discovery.mjs';
 import {profileFor,readValue,writeValues} from './light.mjs';
 import {featuresFor,validateFeature,sceneValues} from './features.mjs';
 import {createAccountSession} from './cloud.mjs';
+import {deadline,acquireEngineLock,setAll} from './reliability.mjs';
 
 process.umask(0o077);
 const root=process.env.SHB_DATA_DIR || path.join(os.homedir(),'Library/Application Support/Smart Home Bridge');
 fs.mkdirSync(root,{recursive:true,mode:0o700});
+const releaseLock=acquireEngineLock(path.join(root,'engine.pid'));
+process.on('exit',releaseLock);
 hap.HAPStorage.setCustomStoragePath(path.join(root,'pairing'));
 const identityPath=path.join(root,'identity.json');
 let identity;
@@ -44,7 +47,7 @@ class Light {
   queue=Promise.resolve(); dps={}; updated=0; online=false; client; service; accessory; error='';
   constructor(config){this.config=config;this.profile=config.profile;}
   serial(action){const result=this.queue.then(action);this.queue=result.catch(()=>{});return result;}
-  resetConnection(){this.client?.disconnect();this.client=undefined;this.online=false;this.updated=0;}
+  resetConnection(){const client=this.client;this.client=undefined;if(client){client.disconnect();client.connect=async()=>{throw new Error('Connection retired.');};}this.online=false;this.updated=0;}
   async send(values){
     let timer;
     try {return await Promise.race([this.client.set({multiple:true,data:values}),new Promise((_,reject)=>{timer=setTimeout(()=>{this.resetConnection();reject(new Error('The light did not acknowledge the command.'));},8000);})]);}
@@ -55,11 +58,11 @@ class Light {
     this.client?.disconnect();
     const client=new TuyaDevice({...this.config,issueGetOnConnect:false});
     this.client=client;
-    client.on('error',()=>{this.online=false;this.error='Local connection failed. Check the key, power, and whether SMART+ is holding a connection.';this.announce();});
-    client.on('disconnected',()=>{this.online=false;this.updated=0;this.announce();});
-    client.on('data',data=>this.ingest(data));
-    client.on('dp-refresh',data=>this.ingest(data));
-    await client.connect();
+    client.on('error',()=>{if(this.client!==client)return;this.online=false;this.error='Local connection failed. Check the key, power, and whether SMART+ is holding a connection.';this.announce();});
+    client.on('disconnected',()=>{if(this.client!==client)return;this.online=false;this.updated=0;this.announce();});
+    client.on('data',data=>{if(this.client===client)this.ingest(data);});
+    client.on('dp-refresh',data=>{if(this.client===client)this.ingest(data);});
+    await deadline(()=>client.connect());
   }
   ingest(data){
     if(!data?.dps || typeof data.dps!=='object')return;
@@ -70,13 +73,15 @@ class Light {
     try {
       await this.connect();
       if(force || Date.now()-this.updated>5000){
-        const response=await this.client.get({schema:true});
+        const client=this.client;
+        const response=await deadline(()=>client.get({schema:true}));
+        if(this.client!==client)throw new Error('Connection replaced.');
         if(!response?.dps)throw new Error('No device state received.');
         this.ingest(response);
       }
       if(!this.online)throw new Error('The light is unavailable.');
       return this.dps;
-    }catch(error){this.online=false;this.error='Could not read the light. Check the local key and close SMART+ temporarily.';this.announce();throw new Error(this.error);}
+    }catch(error){this.resetConnection();this.online=false;this.error='Could not read the light. Check the local key and close SMART+ temporarily.';this.announce();throw new Error(this.error);}
   }
   async verify(){return this.serial(async()=>{
     await this.refresh(true);
@@ -93,7 +98,7 @@ class Light {
       await this.refresh(true);
       for(const [key,value] of Object.entries(changes)){
         const actual=this.dps[key];
-        if(typeof value==='number'?Math.abs(Number(actual)-value)>1:actual!==value)throw new Error('The light did not confirm the requested change.');
+        if(typeof value==='number'?(typeof actual!=='number'||!Number.isFinite(actual)||Math.abs(actual-value)>1):actual!==value)throw new Error('The light did not confirm the requested change.');
       }
       return this.snapshot();
     }catch(error){this.error=error.message;this.announce();throw error;}
@@ -198,13 +203,11 @@ const dispatch=async(method,params={})=>{
     case 'refreshAccount': return refreshAccount();
     case 'configure':{
       validateConfig(params);
-      const existing=lights.get(params.id);
-      if(existing)existing.resetConnection();
-      const light=new Light(params);
-      try{const config=await light.verify();
-        if(existing?.accessory){bridge.removeBridgedAccessory(existing.accessory);}
-        lights.set(params.id,light);if(bridge)light.attach();light.announce();return config;
-      }catch(error){light.resetConnection();light.error=error.message;light.announce();emit('notice',{message:params.name+': '+error.message});throw error;}
+      let light=lights.get(params.id);
+      if(light){light.config={...light.config,...params};light.resetConnection();}
+      else {light=new Light(params);lights.set(params.id,light);}
+      try{const config=await light.verify();if(bridge)light.attach();light.announce();return config;}
+      catch(error){light.resetConnection();light.error=error.message;light.announce();emit('notice',{message:params.name+': '+error.message});throw error;}
     }
     case 'restore':{
       for(const config of params.devices || []){
@@ -219,6 +222,7 @@ const dispatch=async(method,params={})=>{
     }
     case 'start':return startBridge();
     case 'stop':return stopBridge();
+    case 'allPower':if(typeof params.on!=='boolean')throw new Error('Invalid power value.');return setAll([...lights.values()],params.on);
     case 'write':{const light=lights.get(params.id);if(!light)throw new Error('Connect this light first.');return light.write(params.property,params.value);}
     case 'features':{const light=lights.get(params.id);if(!light)throw new Error('Connect this light first.');return light.serial(async()=>{await light.refresh(true);const ids=(light.config.schema || []).filter(x=>String(x.mode).includes('r')).map(x=>Number(x.id));try{light.ingest(await light.client.refresh({requestedDPS:ids,schema:true}));}catch{}return light.featureState();});}
     case 'featureWrite':{const light=lights.get(params.id);if(!light)throw new Error('Connect this light first.');return light.featureWrite(params.featureID,params.value);}
@@ -228,7 +232,9 @@ const dispatch=async(method,params={})=>{
     default:throw new Error('Unknown bridge operation.');
   }
 };
-async function shutdown(){if(stopping)return;stopping=true;clearInterval(accountTimer);clearInterval(poll);discovery.stop();for(const light of lights.values())light.resetConnection();await stopBridge();setTimeout(()=>process.exit(0),50);}
+async function shutdown(){if(stopping)return;stopping=true;setTimeout(()=>process.exit(0),3000).unref();clearInterval(parentWatch);clearInterval(accountTimer);clearInterval(poll);discovery.stop();for(const light of lights.values())light.resetConnection();await stopBridge();setTimeout(()=>process.exit(0),50);}
+const parentPID=Number(process.env.SHB_PARENT_PID || 0);
+const parentWatch=setInterval(()=>{if(parentPID && process.ppid!==parentPID)void shutdown();},1000);
 const poll=setInterval(()=>{for(const light of lights.values())light.serial(()=>light.refresh(true)).catch(()=>{});},15000);
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>void shutdown());
 const input=readline.createInterface({input:process.stdin});

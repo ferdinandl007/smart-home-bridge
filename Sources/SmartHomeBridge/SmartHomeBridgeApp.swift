@@ -27,7 +27,7 @@ struct BridgeMenu:View {
     @Bindable var model:BridgeModel
     @Environment(\.openWindow) private var openWindow
     var body:some View {
-        Text(model.status.running ? (model.status.paired ? "Connected to Apple Home":"Bridge online · ready to pair"):"Bridge offline")
+        Text(model.status.running ? (model.connected ? "Bridge online":"Bridge online · lights unavailable"):"Bridge offline")
         Text("\(model.lights.filter(\.online).count) connected · \(model.savedNames.count) lights detected")
         Divider()
         Button("HomeKit setup…") { NSApp.activate();openWindow(id:"main") }
@@ -40,14 +40,15 @@ struct BridgeMenu:View {
 struct SetupView:View {
     @Bindable var model:BridgeModel
     @State private var showCode=false
+    @State private var showTests=false
     private var online:Int { model.lights.filter(\.online).count }
     var body:some View {
         VStack(spacing:20) {
-            Image(systemName:model.status.paired ? "checkmark.circle.fill":"house.fill")
-                .font(.system(size:40,weight:.regular)).foregroundStyle(model.status.paired ? Color.green:Color.accentColor)
+            Image(systemName:model.connected ? "checkmark.circle.fill":"wifi.exclamationmark")
+                .font(.system(size:40,weight:.regular)).foregroundStyle(model.connected ? Color.green:Color.secondary)
                 .accessibilityHidden(true)
             VStack(spacing:8) {
-                Text(model.status.paired ? "Your Lights Are Connected":"Your Lights, in Apple Home")
+                Text(!model.status.running && !model.accountEmail.isEmpty ? "Bridge Needs Attention":model.status.paired && model.connected ? "Your Lights Are Connected":"Your Lights, in Apple Home")
                     .font(.title2.weight(.semibold))
                 Text(model.accountEmail.isEmpty ? "Connect your SMART+ account to get started.":model.status.paired ? "Control them in Apple Home. We’ll take care of the connection.":"Open Home on your iPhone, tap +, then Add Accessory and scan the code.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal:false,vertical:true)
@@ -70,6 +71,20 @@ struct SetupView:View {
                 } else {
                     Text("New lights connect automatically.\nThis app keeps running when you close the window.").font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("Show Pairing Code") { showCode=true }.buttonStyle(.link)
+                }
+            }
+            if !model.accountEmail.isEmpty {
+                DisclosureGroup("Connection & Test",isExpanded:$showTests) {
+                    VStack(spacing:12) {
+                        Button("Recover Connection") { Task { await model.recoverConnection() } }.disabled(model.busy)
+                        HStack {
+                            Button("All On") { Task { await model.testAllLights(on:true) } }
+                            Button("All Off") { Task { await model.testAllLights(on:false) } }
+                        }.disabled(model.busy || !model.engineReady)
+                        Text("Changes the power of your bridge’s lights. Unreachable lights are reported.").font(.caption).foregroundStyle(.secondary)
+                        if model.busy { ProgressView().controlSize(.small) }
+                        if !model.testResult.isEmpty { Text(model.testResult).font(.callout).multilineTextAlignment(.center) }
+                    }.padding(.top,10)
                 }
             }
             if let error=model.error {

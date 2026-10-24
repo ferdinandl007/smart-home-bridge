@@ -1,7 +1,11 @@
-SMART+ HomeKit Bridge 1.0.3 renames the app and repository to SMART+ HomeKit Bridge and sets the HomeKit bridge manufacturer and model to SMART+ HomeKit Bridge.
+SMART+ HomeKit Bridge 1.0.4 improves connection recovery and troubleshooting.
 
-Existing account settings, device identities, and Apple Home pairing are preserved. The internal storage directory and bundle identifier remain unchanged for compatibility.
+- A compact Connection & Test section in setup offers Recover Connection, All On, and All Off.
+- Recovery restarts the helper and reconnects saved lights without deleting Apple Home pairing.
+- Test commands show how many lights confirmed the change and how many failed.
+- Device reads have a deadline, so an unresponsive light cannot indefinitely block later commands.
+- Reconnecting updates the existing accessory instead of replacing its HomeKit handlers.
+- Single-instance locks and parent-process monitoring prevent duplicate or orphan helpers.
+- The setup status no longer treats an old pairing as proof that lights are reachable.
 
-This is the Apple silicon build for macOS 15+. It is ad-hoc signed, not notarized. Automatic launch occurs after user login. Supported hardware remains LEDVANCE / OSRAM SMART+ Tuya Wi-Fi lights; the rename does not imply support for additional device protocols.
-
-The README is now a short product introduction, with download and release badges, automatic-setup benefits, and three setup steps. Technical details moved to docs/DEVELOPMENT.md.
+The existing Apple Home identity and login are preserved. This release remains for compatible SMART+ Wi-Fi bulbs and light strips on Apple silicon Macs running macOS 15+.

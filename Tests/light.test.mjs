@@ -80,3 +80,17 @@ test('RGB-only zero saturation remains an RGB control',()=>{
  const p=profileFor(rgb,[{id:21,code:'work_mode',property:{range:['colour','scene']}}]);
  assert.deepEqual(writeValues(rgb,p,'saturation',0),{'21':'colour','24':'0112000003e8'});
 });
+
+test('unresponsive operations time out instead of blocking the command queue',async()=>{
+ const {deadline}=await import('../Bridge/reliability.mjs');await assert.rejects(deadline(()=>new Promise(()=>{}),10),/did not respond/);assert.equal(await deadline(()=>42,100),42);
+});
+test('all-lights commands report individual failures without hiding successful lights',async()=>{
+ const {setAll}=await import('../Bridge/reliability.mjs');let value;
+ const result=await setAll([{config:{id:'a',name:'Working'},write:async(p,v)=>{value=v;}},{config:{id:'b',name:'Offline'},write:async()=>{throw Error('offline');}}],false);
+ assert.equal(value,false);assert.equal(result[0].success,true);assert.equal(result[1].success,false);
+});
+
+test('engine ownership lock rejects a second owner and releases cleanly',async()=>{
+ const {acquireEngineLock}=await import('../Bridge/reliability.mjs');const fs=await import('node:fs');const os=await import('node:os');const path=await import('node:path');const dir=fs.mkdtempSync(path.join(os.tmpdir(),'shb-lock-'));const file=path.join(dir,'engine.pid');
+ try {const release=acquireEngineLock(file);assert.throws(()=>acquireEngineLock(file),/already running/);release();assert.equal(fs.existsSync(file),false);const again=acquireEngineLock(file);again();}finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

@@ -65,6 +65,10 @@ enum BridgeFailure: LocalizedError {
     private var terminating = false
     private var restartAttempt = 0
     private var started = false
+    private var recovering = false
+    private var instanceLock:Int32 = -1
+    var testResult = ""
+    var connected:Bool { engineReady && status.running && lights.contains(where: \.online) }
 
     init() {
         do { saved = try CredentialStore.load(); credentials = try CredentialStore.loadAccount(); accountEmail = credentials?["email"] as? String ?? ""; updateNames() }
@@ -84,6 +88,13 @@ enum BridgeFailure: LocalizedError {
     private func persist() throws { try CredentialStore.save(saved); updateNames() }
     func startEngine() {
         guard engine?.isRunning != true else { return }
+        if instanceLock < 0 {
+            let directory=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appending(path:"Smart Home Bridge")
+            try? FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+            let fd=Darwin.open(directory.appending(path:"app.lock").path,O_CREAT|O_RDWR|O_CLOEXEC,0o600)
+            guard fd >= 0, flock(fd,LOCK_EX|LOCK_NB)==0 else { if fd >= 0 { Darwin.close(fd) };error="Another copy of the bridge is running. Quit it before opening this copy.";return }
+            instanceLock=fd
+        }
         terminating = false
         engineReady = false
         outputBuffer = Data()
@@ -97,6 +108,9 @@ enum BridgeFailure: LocalizedError {
         let process = Process()
         process.executableURL = runtime
         process.arguments = [script.path]
+        var environment=ProcessInfo.processInfo.environment
+        environment["SHB_PARENT_PID"]=String(ProcessInfo.processInfo.processIdentifier)
+        process.environment=environment
         process.currentDirectoryURL = resources.appending(path:"Bridge")
         // The engine communicates only over private pipes; no web server or admin port.
         let incoming = Pipe(), outgoing = Pipe()
@@ -106,10 +120,12 @@ enum BridgeFailure: LocalizedError {
         input = incoming.fileHandleForWriting
         outgoing.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data=handle.availableData
+            if data.isEmpty { handle.readabilityHandler=nil;return }
             Task { @MainActor [weak self] in self?.receive(data) }
         }
-        process.terminationHandler = { [weak self] _ in
-            Task { @MainActor in self?.engineStopped() }
+        process.terminationHandler = { [weak self] process in
+            let pid=process.processIdentifier
+            Task { @MainActor in if self?.engine?.processIdentifier == pid { self?.engineStopped() } }
         }
         do { try process.run(); engine=process }
         catch { self.error = "Could not start the bridge: \(error.localizedDescription)" }
@@ -120,7 +136,7 @@ enum BridgeFailure: LocalizedError {
         let waiting=pending; pending.removeAll()
         for (_,continuation) in waiting { continuation.resume(throwing:BridgeFailure.message("The bridge engine stopped.")) }
         for index in lights.indices { lights[index].online=false }
-        guard !terminating else { return }
+        guard !terminating && !recovering else { return }
         error="The bridge engine stopped. Restart it to reconnect your lights."
         if restartAttempt < 1 {
             restartAttempt += 1
@@ -142,7 +158,7 @@ enum BridgeFailure: LocalizedError {
     private func handle(_ event: [String:Any]) {
         switch event["event"] as? String {
         case "ready":
-            engineReady=true; message="Looking for your lights on the local network."
+            error=nil;engineReady=true; message="Looking for your lights on the local network."
             Task { await restore() }
         case "reply":
             guard let id=event["requestID"] as? String, let continuation=pending.removeValue(forKey:id) else { return }
@@ -215,6 +231,31 @@ enum BridgeFailure: LocalizedError {
             }
         }
         do { try persist() } catch { self.error=error.localizedDescription }
+    }
+    func recoverConnection() async {
+        guard !busy else { return }
+        busy=true;recovering=true;error=nil;testResult="Reconnecting…"
+        defer { busy=false;recovering=false }
+        let previous=engine
+        input?.closeFile();previous?.terminate()
+        for _ in 0..<30 { if previous?.isRunning != true { break };try? await Task.sleep(for:.milliseconds(100)) }
+        if let previous,previous.isRunning { Darwin.kill(previous.processIdentifier,SIGKILL) }
+        for _ in 0..<20 { if previous?.isRunning != true { break };try? await Task.sleep(for:.milliseconds(100)) }
+        engine=nil;engineReady=false;status.running=false;connecting.removeAll();found.removeAll();lights.removeAll()
+        startEngine()
+        for _ in 0..<100 { if connected { break };try? await Task.sleep(for:.milliseconds(200)) }
+        testResult=connected ? "Connection restored. Your Apple Home pairing is unchanged.":"Still reconnecting. Check that your lights are powered on and on the same Wi-Fi."
+    }
+    func testAllLights(on:Bool) async {
+        guard !busy else { return };busy=true;defer{busy=false}
+        testResult=on ? "Turning all connected lights on…":"Turning all connected lights off…"
+        do {
+            let results=try await request("allPower",["on":on],timeout:35) as? [[String:Any]] ?? []
+            let passed=results.filter{$0["success"] as? Bool == true}.count
+            let failed=results.count-passed+max(0,savedNames.count-results.count)
+            testResult="\(passed) lights confirmed \(on ? "on":"off")."+(failed>0 ? " \(failed) did not respond.":"")
+            if results.isEmpty { testResult="No lights are connected yet. Try Recover Connection." }
+        } catch { testResult=error.localizedDescription }
     }
     func refreshEverything() async {
         if credentials != nil { do { _ = try await request("refreshAccount",timeout:180) } catch { self.error=error.localizedDescription } }
