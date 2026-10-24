@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+.venv/
+node_modules/
+dist/
+research/
+scripts/vault
+scripts/vault.swift
+.DS_Store
+*.log
+*.local.json
+
+.runtime/
