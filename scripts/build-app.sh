@@ -18,7 +18,7 @@ if [[ ! -x "$runtime_dir/bin/node" ]]; then
   tar -xzf ".runtime/${archive}" -C .runtime
 fi
 node_binary="$runtime_dir/bin/node"
-npm ci --prefix Bridge --ignore-scripts
+npm ci --prefix Bridge --ignore-scripts --registry=https://registry.npmjs.org
 swift build -c release
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Runtime" "$app/Contents/Resources/Bridge"
 cp .build/release/SmartHomeBridge "$app/Contents/MacOS/SmartHomeBridge"
@@ -36,7 +36,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>com.local.SmartHomeBridge</string>
 <key>CFBundleExecutable</key><string>SmartHomeBridge</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0.1</string>
+<key>CFBundleShortVersionString</key><string>1.0.2</string>
 <key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>

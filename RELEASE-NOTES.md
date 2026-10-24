@@ -1,4 +1,4 @@
-Smart Home Bridge 1.0.1 adds LEDVANCE / OSRAM SMART+ Wi-Fi lights to Apple Home from a native macOS menu bar app.
+Smart Home Bridge 1.0.2 adds LEDVANCE / OSRAM SMART+ Wi-Fi lights to Apple Home from a native macOS menu bar app.
 
 - One-time SMART+ email/password login and automatic inventory refresh every two minutes.
 - Local encrypted light control, automatic reconnects, and automatic addition of newly discovered supported account lights.
